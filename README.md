@@ -34,7 +34,7 @@ docker run -p 8080:8080 --rm -it --name wh umutbasal/whoami:latest
 ### Example
 
 ```sh
-curl curl http://localhost:8080/ | jq '.sysinfo.host_name'
+curl http://localhost:8080/ | jq '.sysinfo.host_name'
 
 "ubuntu"
 ```
