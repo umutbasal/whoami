@@ -1,6 +1,7 @@
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
+use json_to_table::json_to_table;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::{convert::Infallible, net::SocketAddr};
@@ -45,10 +46,29 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         "sysinfo": sys,
         "headers": headers_map,
         "remote_ip": remote_ip,
-        "environment": environment_map,
+        "environment": environment_map
     });
 
-    Ok(Response::new(Body::from(
-        serde_json::to_string(&json_data).unwrap(),
-    )))
+    let mut output = String::new();
+
+    for (key, value) in json_data.as_object().unwrap() {
+        output = output + &format!("<h1>{}</h1><pre>{}</pre>", key, json_to_table(value));
+    }
+
+    if req.uri().query().map_or(false, |q| q.contains("json=true"))
+        || req.headers().get("accept").map_or(false, |a| {
+            a.to_str().unwrap_or("").contains("application/json")
+        })
+        || req
+            .headers()
+            .get("user-agent")
+            .map_or(false, |a| a.to_str().unwrap_or("").contains("curl"))
+    {
+        return Ok(Response::new(Body::from(json_data.to_string())));
+    }
+
+    Ok(Response::new(Body::from(format!(
+        "<html><head><title>Whoami</title></head><body>{}</body></html>",
+        output
+    ))))
 }
