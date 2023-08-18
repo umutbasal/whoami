@@ -36,10 +36,16 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         headers_map.insert(name.to_string(), value.to_str().unwrap_or("").to_string());
     }
 
+    let mut environment_map = HashMap::new();
+    for (key, value) in std::env::vars() {
+        environment_map.insert(key, value);
+    }
+
     let json_data = serde_json::json!({
         "sysinfo": sys,
         "headers": headers_map,
         "remote_ip": remote_ip,
+        "environment": environment_map,
     });
 
     Ok(Response::new(Body::from(
