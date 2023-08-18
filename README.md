@@ -38,3 +38,5 @@ curl curl http://localhost:8080/ | jq '.sysinfo.host_name'
 
 "ubuntu"
 ```
+
+<img width="1400" alt="image" src="https://github.com/umutbasal/whoami/assets/21194079/0712ee8e-c63b-464f-be32-47b2d6bce258">
