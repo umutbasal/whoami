@@ -39,4 +39,14 @@ curl http://localhost:8080/ | jq '.sysinfo.host_name'
 "ubuntu"
 ```
 
+```sh
+# best way to work with cli
+curl http://localhost:8080/ | yq -P | less
+
+environment:
+  CARGO: /Users/user/.rustup/toolchains/nightly-aarch64-apple-darwin/bin/cargo
+  CARGO_HOME: /Users/user/.cargo
+  ....
+```
+
 <img width="1400" alt="image" src="https://github.com/umutbasal/whoami/assets/21194079/0712ee8e-c63b-464f-be32-47b2d6bce258">
