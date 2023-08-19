@@ -26,10 +26,11 @@ docker run -p 8080:8080 --rm -it --name wh umutbasal/whoami:latest
 
 - JSON
   - if `Accept: application/json` header is present
-  - if `?json=true` query parameter is present
   - if user agent is `curl`
+  - if path or query includes "j" (eg /j, /?j)
 - HTML
   - default behavior when visiting from browser
+  - if path or query includes "h" (eg /h, /?h)
 
 ### Example
 
@@ -49,4 +50,18 @@ environment:
   ....
 ```
 
-<img width="1400" alt="image" src="https://github.com/umutbasal/whoami/assets/21194079/0712ee8e-c63b-464f-be32-47b2d6bce258">
+```sh
+# same html view for cli
+curl http://localhost:8080/h | less
+
+<h1>environment</h1>
+<pre>
++--------------------------------------+-------------------------------------------------------------------------+
+| CARGO                                |  /Users/user/.rustup/toolchains/nightly-aarch64-apple-darwin/bin/cargo  |
++--------------------------------------+-------------------------------------------------------------------------+
+| CARGO_HOME                           |  /Users/user/.cargo                                                     |
++--------------------------------------+-------------------------------------------------------------------------+
+...
+```
+
+![image](https://github.com/umutbasal/whoami/assets/21194079/0712ee8e-c63b-464f-be32-47b2d6bce258)

@@ -24,6 +24,21 @@ async fn main() {
     }
 }
 
+fn value_limiter(val: String) -> String {
+    // adds new line every 80 characters
+    let mut output = String::new();
+    let mut counter = 0;
+    for c in val.chars() {
+        if counter == 80 {
+            output.push_str("\n");
+            counter = 0;
+        }
+        output.push(c);
+        counter += 1;
+    }
+    output
+}
+
 async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
     let mut sys = System::new_all();
 
@@ -34,12 +49,15 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
 
     let mut headers_map = HashMap::new();
     for (name, value) in headers.iter() {
-        headers_map.insert(name.to_string(), value.to_str().unwrap_or("").to_string());
+        headers_map.insert(
+            name.to_string(),
+            value_limiter(value.to_str().unwrap_or("").to_string()),
+        );
     }
 
     let mut environment_map = HashMap::new();
     for (key, value) in std::env::vars() {
-        environment_map.insert(key, value);
+        environment_map.insert(key, value_limiter(value));
     }
 
     let json_data = serde_json::json!({
@@ -52,17 +70,25 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
     let mut output = String::new();
 
     for (key, value) in json_data.as_object().unwrap() {
-        output = output + &format!("<h1>{}</h1><pre>{}</pre>", key, json_to_table(value));
+        output = output
+            + &format!(
+                "\n<h1>{}</h1>\n<pre>\n{}\n</pre>",
+                key,
+                json_to_table(value)
+            );
     }
 
-    if req.uri().query().map_or(false, |q| q.contains("json=true"))
+    if req.uri().query().map_or(false, |q| q.contains("j"))
+        || req.uri().path().contains("j")
         || req.headers().get("accept").map_or(false, |a| {
             a.to_str().unwrap_or("").contains("application/json")
         })
-        || req
+        || (req
             .headers()
             .get("user-agent")
             .map_or(false, |a| a.to_str().unwrap_or("").contains("curl"))
+            && !(req.uri().query().map_or(false, |q| q.contains("h"))
+                || req.uri().path().contains("h")))
     {
         return Ok(Response::new(Body::from(json_data.to_string())));
     }
