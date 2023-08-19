@@ -105,3 +105,149 @@ fn view_as_json(req: Request<Body>) -> bool {
             && !(req.uri().query().map_or(false, |q| q.contains("h"))
                 || req.uri().path().contains("h")))
 }
+
+#[cfg(test)]
+mod tests {
+    use sysinfo::SystemExt;
+
+    #[test]
+    fn value_limit_fail_not_json() {
+        let mut input = "".to_string();
+        for _ in 0..100 {
+            input.push_str("a");
+        }
+        let got = super::value_limiter(false, input.to_string());
+        let want = input.to_string();
+        assert_ne!(got, want);
+    }
+
+    #[test]
+    fn value_limit_pass_not_json() {
+        let mut input = "".to_string();
+        for _ in 0..500 {
+            input.push_str("a");
+        }
+        let got = super::value_limiter(false, input.to_string());
+
+        for line in got.lines() {
+            assert!(line.len() <= 80);
+        }
+
+        assert!(got.lines().count() == 7)
+    }
+
+    #[test]
+    fn value_limit_pass_json() {
+        let mut input = "".to_string();
+        for _ in 0..500 {
+            input.push_str("a");
+        }
+        let got = super::value_limiter(true, input.to_string());
+
+        assert!(got.lines().count() == 1)
+    }
+
+    #[test]
+    fn view_as_json_pass_json_param() {
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/?j")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::view_as_json(req);
+        assert!(got);
+
+        let req2 = hyper::Request::builder()
+            .uri("http://localhost:8080/j")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got2 = super::view_as_json(req2);
+        assert!(got2);
+    }
+
+    #[test]
+    fn view_as_json_pass_html_param() {
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/h")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::view_as_json(req);
+        assert!(!got);
+
+        let req2 = hyper::Request::builder()
+            .uri("http://localhost:8080/?h")
+            .body(hyper::Body::empty())
+            .unwrap();
+
+        let got2 = super::view_as_json(req2);
+        assert!(!got2);
+    }
+
+    #[tokio::test]
+    async fn os_env_test() {
+        // addr
+        let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        // set an env var
+        std::env::set_var("TEST_ENV_VAR", "test_value");
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/h")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::handle(req, addr).await.unwrap();
+        let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("TEST_ENV_VAR"));
+        assert!(body.contains("test_value"));
+    }
+
+    #[tokio::test]
+    async fn sysinfo_shown() {
+        // addr
+        let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/h")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::handle(req, addr).await.unwrap();
+        let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_all();
+        let want = sys.host_name().unwrap();
+
+        assert!(body.contains(&want));
+    }
+
+    #[tokio::test]
+    async fn headers_shown() {
+        // addr
+        let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/h")
+            .header("test_header", "test_value")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::handle(req, addr).await.unwrap();
+        let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(body.contains("test_header"));
+        assert!(body.contains("test_value"));
+    }
+
+    #[tokio::test]
+    async fn remote_ip_shown() {
+        // addr
+        let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let req = hyper::Request::builder()
+            .uri("http://localhost:8080/h")
+            .body(hyper::Body::empty())
+            .unwrap();
+        let got = super::handle(req, addr).await.unwrap();
+        let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(body.contains("remote_ip"));
+        assert!(body.contains("0.0.0.0"));
+    }
+}
