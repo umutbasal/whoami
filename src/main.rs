@@ -43,13 +43,8 @@ fn value_limiter(flag: bool, val: String) -> String {
 }
 
 async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
-    let (view_as_json, req) = view_as_json(req);
-    let mut sys = System::new_all();
-
-    sys.refresh_all();
-
-    let remote_ip = addr.ip().to_string();
     let headers = req.headers().clone();
+    let view_as_json = view_as_json(req);
 
     let mut headers_map = HashMap::new();
     for (name, value) in headers.iter() {
@@ -64,11 +59,16 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         environment_map.insert(key, value_limiter(view_as_json, value));
     }
 
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let remote_ip = addr.ip().to_string();
+
     let json_data = serde_json::json!({
-        "sysinfo": sys,
         "headers": headers_map,
+        "environment": environment_map,
+        "sysinfo": sys,
         "remote_ip": remote_ip,
-        "environment": environment_map
     });
 
     let mut output = String::new();
@@ -92,7 +92,7 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
     ))))
 }
 
-fn view_as_json(req: Request<Body>) -> (bool, Request<Body>) {
+fn view_as_json(req: Request<Body>) -> bool {
     let mut flag = false;
 
     if req.uri().query().map_or(false, |q| q.contains("j"))
@@ -109,5 +109,5 @@ fn view_as_json(req: Request<Body>) -> (bool, Request<Body>) {
     {
         flag = true;
     }
-    (flag, req)
+    flag
 }
