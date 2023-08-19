@@ -40,19 +40,6 @@
 			},
 			"args": [],
 			"cwd": "${workspaceFolder}"
-		},
-		{
-			"type": "lldb",
-			"request": "launch",
-			"name": "Debug unit tests in whole workspace",
-			"cargo": {
-				"args": [
-					"test",
-					"--no-run"
-				]
-			},
-			"args": [],
-			"cwd": "${workspaceFolder}"
 		}
 	]
 }
