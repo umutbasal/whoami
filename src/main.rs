@@ -93,9 +93,7 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
 }
 
 fn view_as_json(req: Request<Body>) -> bool {
-    let mut flag = false;
-
-    if req.uri().query().map_or(false, |q| q.contains("j"))
+    req.uri().query().map_or(false, |q| q.contains("j"))
         || req.uri().path().contains("j")
         || req.headers().get("accept").map_or(false, |a| {
             a.to_str().unwrap_or("").contains("application/json")
@@ -106,8 +104,4 @@ fn view_as_json(req: Request<Body>) -> bool {
             .map_or(false, |a| a.to_str().unwrap_or("").contains("curl"))
             && !(req.uri().query().map_or(false, |q| q.contains("h"))
                 || req.uri().path().contains("h")))
-    {
-        flag = true;
-    }
-    flag
 }
