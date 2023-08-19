@@ -24,7 +24,10 @@ async fn main() {
     }
 }
 
-fn value_limiter(val: String) -> String {
+fn value_limiter(flag: bool, val: String) -> String {
+    if flag {
+        return val;
+    }
     // adds new line every 80 characters
     let mut output = String::new();
     let mut counter = 0;
@@ -40,6 +43,7 @@ fn value_limiter(val: String) -> String {
 }
 
 async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
+    let (view_as_json, req) = view_as_json(req);
     let mut sys = System::new_all();
 
     sys.refresh_all();
@@ -51,13 +55,13 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
     for (name, value) in headers.iter() {
         headers_map.insert(
             name.to_string(),
-            value_limiter(value.to_str().unwrap_or("").to_string()),
+            value_limiter(view_as_json, value.to_str().unwrap_or("").to_string()),
         );
     }
 
     let mut environment_map = HashMap::new();
     for (key, value) in std::env::vars() {
-        environment_map.insert(key, value_limiter(value));
+        environment_map.insert(key, value_limiter(view_as_json, value));
     }
 
     let json_data = serde_json::json!({
@@ -78,6 +82,19 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
             );
     }
 
+    if view_as_json {
+        return Ok(Response::new(Body::from(json_data.to_string())));
+    }
+
+    Ok(Response::new(Body::from(format!(
+        "<html><head><title>Whoami</title></head><body>{}</body></html>",
+        output
+    ))))
+}
+
+fn view_as_json(req: Request<Body>) -> (bool, Request<Body>) {
+    let mut flag = false;
+
     if req.uri().query().map_or(false, |q| q.contains("j"))
         || req.uri().path().contains("j")
         || req.headers().get("accept").map_or(false, |a| {
@@ -90,11 +107,7 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
             && !(req.uri().query().map_or(false, |q| q.contains("h"))
                 || req.uri().path().contains("h")))
     {
-        return Ok(Response::new(Body::from(json_data.to_string())));
+        flag = true;
     }
-
-    Ok(Response::new(Body::from(format!(
-        "<html><head><title>Whoami</title></head><body>{}</body></html>",
-        output
-    ))))
+    (flag, req)
 }
