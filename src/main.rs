@@ -3,24 +3,76 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use json_to_table::json_to_table;
 use std::collections::HashMap;
-use std::net::IpAddr;
-use std::{convert::Infallible, net::SocketAddr};
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use sysinfo::{System, SystemExt};
+
+struct Store {
+    sys: Arc<Mutex<System>>,
+    env: Arc<HashMap<String, String>>,
+    ttl: Duration,
+    last_refresh: Instant,
+}
+
+impl Store {
+    fn new() -> Self {
+        Store {
+            sys: Arc::new(Mutex::new(System::new_all())),
+            env: Arc::new(std::env::vars().collect()),
+            ttl: Duration::from_secs(10),
+            last_refresh: Instant::now(),
+        }
+    }
+
+    fn refresh(&mut self) {
+        self.sys.lock().unwrap().refresh_all();
+
+        let mut new_env = HashMap::new();
+        for (key, value) in std::env::vars() {
+            new_env.insert(key, value);
+        }
+        self.env = Arc::new(new_env);
+
+        self.last_refresh = Instant::now();
+    }
+
+    fn getsys(&mut self) -> Arc<Mutex<System>> {
+        if self.last_refresh.elapsed() > self.ttl {
+            self.refresh();
+        }
+        Arc::clone(&self.sys)
+    }
+
+    fn getenv(&mut self) -> Arc<HashMap<String, String>> {
+        if self.last_refresh.elapsed() > self.ttl {
+            self.refresh();
+        }
+        Arc::clone(&self.env)
+    }
+}
 
 #[tokio::main]
 async fn main() {
+    let store = Arc::new(Mutex::new(Store::new()));
+
     let addr = SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8080);
-    let server = Server::bind(&addr).serve(make_service_fn(move |conn: &AddrStream| {
+    let make_svc = make_service_fn(move |conn: &AddrStream| {
         let addr = conn.remote_addr();
+        let store_clone = Arc::clone(&store);
+
         async move {
-            let addr = addr.clone();
-            Ok::<_, Infallible>(service_fn(move |req| handle(req, addr.clone())))
+            Ok::<_, hyper::Error>(service_fn(move |req| {
+                handle(req, addr.clone(), Arc::clone(&store_clone))
+            }))
         }
-    }));
+    });
+
+    let server = Server::bind(&addr).serve(make_svc);
 
     println!("Listening on http://{}", addr);
     if let Err(e) = server.await {
-        println!("server error: {}", e);
+        eprintln!("server error: {}", e);
     }
 }
 
@@ -42,7 +94,11 @@ fn value_limiter(flag: bool, val: String) -> String {
     output
 }
 
-async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, Infallible> {
+async fn handle(
+    req: Request<Body>,
+    addr: SocketAddr,
+    store: Arc<Mutex<Store>>,
+) -> Result<Response<Body>, hyper::Error> {
     let headers = req.headers().clone();
     let view_as_json = view_as_json(req);
 
@@ -54,19 +110,15 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         );
     }
 
-    let mut environment_map = HashMap::new();
-    for (key, value) in std::env::vars() {
-        environment_map.insert(key, value_limiter(view_as_json, value));
-    }
-
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut s = store.lock().unwrap();
+    let sys = &*s.getsys();
+    let env = &*s.getenv();
 
     let remote_ip = addr.ip().to_string();
 
     let json_data = serde_json::json!({
         "headers": headers_map,
-        "environment": environment_map,
+        "environment": env,
         "sysinfo": sys,
         "remote_ip": remote_ip,
     });
@@ -184,15 +236,15 @@ mod tests {
 
     #[tokio::test]
     async fn os_env_test() {
+        std::env::set_var("TEST_ENV_VAR", "test_value");
         // addr
         let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
-        // set an env var
-        std::env::set_var("TEST_ENV_VAR", "test_value");
+        let store = super::Arc::new(super::Mutex::new(super::Store::new()));
         let req = hyper::Request::builder()
             .uri("http://localhost:8080/h")
             .body(hyper::Body::empty())
             .unwrap();
-        let got = super::handle(req, addr).await.unwrap();
+        let got = super::handle(req, addr, store).await.unwrap();
         let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("TEST_ENV_VAR"));
@@ -203,11 +255,12 @@ mod tests {
     async fn sysinfo_shown() {
         // addr
         let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let store = super::Arc::new(super::Mutex::new(super::Store::new()));
         let req = hyper::Request::builder()
             .uri("http://localhost:8080/h")
             .body(hyper::Body::empty())
             .unwrap();
-        let got = super::handle(req, addr).await.unwrap();
+        let got = super::handle(req, addr, store).await.unwrap();
         let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
 
@@ -222,12 +275,13 @@ mod tests {
     async fn headers_shown() {
         // addr
         let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let store = super::Arc::new(super::Mutex::new(super::Store::new()));
         let req = hyper::Request::builder()
             .uri("http://localhost:8080/h")
             .header("test_header", "test_value")
             .body(hyper::Body::empty())
             .unwrap();
-        let got = super::handle(req, addr).await.unwrap();
+        let got = super::handle(req, addr, store).await.unwrap();
         let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
 
@@ -239,11 +293,12 @@ mod tests {
     async fn remote_ip_shown() {
         // addr
         let addr = super::SocketAddr::new(super::IpAddr::from([0, 0, 0, 0]), 8080);
+        let store = super::Arc::new(super::Mutex::new(super::Store::new()));
         let req = hyper::Request::builder()
             .uri("http://localhost:8080/h")
             .body(hyper::Body::empty())
             .unwrap();
-        let got = super::handle(req, addr).await.unwrap();
+        let got = super::handle(req, addr, store).await.unwrap();
         let body = hyper::body::to_bytes(got.into_body()).await.unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
 
