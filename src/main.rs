@@ -12,10 +12,7 @@ async fn main() {
     let addr = SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 8080);
     let server = Server::bind(&addr).serve(make_service_fn(move |conn: &AddrStream| {
         let addr = conn.remote_addr();
-        async move {
-            let addr = addr.clone();
-            Ok::<_, Infallible>(service_fn(move |req| handle(req, addr.clone())))
-        }
+        async move { Ok::<_, Infallible>(service_fn(move |req| handle(req, addr))) }
     }));
 
     println!("Listening on http://{}", addr);
@@ -33,7 +30,7 @@ fn value_limiter(flag: bool, val: String) -> String {
     let mut counter = 0;
     for c in val.chars() {
         if counter == 80 {
-            output.push_str("\n");
+            output.push('\n');
             counter = 0;
         }
         output.push(c);
@@ -93,8 +90,8 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
 }
 
 fn view_as_json(req: Request<Body>) -> bool {
-    req.uri().query().map_or(false, |q| q.contains("j"))
-        || req.uri().path().contains("j")
+    req.uri().query().map_or(false, |q| q.contains('j'))
+        || req.uri().path().contains('j')
         || req.headers().get("accept").map_or(false, |a| {
             a.to_str().unwrap_or("").contains("application/json")
         })
@@ -102,8 +99,8 @@ fn view_as_json(req: Request<Body>) -> bool {
             .headers()
             .get("user-agent")
             .map_or(false, |a| a.to_str().unwrap_or("").contains("curl"))
-            && !(req.uri().query().map_or(false, |q| q.contains("h"))
-                || req.uri().path().contains("h")))
+            && !(req.uri().query().map_or(false, |q| q.contains('h'))
+                || req.uri().path().contains('h')))
 }
 
 #[cfg(test)]
@@ -114,7 +111,7 @@ mod tests {
     fn value_limit_fail_not_json() {
         let mut input = "".to_string();
         for _ in 0..100 {
-            input.push_str("a");
+            input.push('a');
         }
         let got = super::value_limiter(false, input.to_string());
         let want = input.to_string();
@@ -125,7 +122,7 @@ mod tests {
     fn value_limit_pass_not_json() {
         let mut input = "".to_string();
         for _ in 0..500 {
-            input.push_str("a");
+            input.push('a');
         }
         let got = super::value_limiter(false, input.to_string());
 
@@ -140,7 +137,7 @@ mod tests {
     fn value_limit_pass_json() {
         let mut input = "".to_string();
         for _ in 0..500 {
-            input.push_str("a");
+            input.push('a');
         }
         let got = super::value_limiter(true, input.to_string());
 
