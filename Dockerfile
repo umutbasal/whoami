@@ -10,7 +10,7 @@ RUN cargo build --release
 FROM alpine:3.18
 WORKDIR /app
 RUN apk update \
-    && apk add openssl ca-certificates curl
+    && apk add openssl ca-certificates curl bind-tools
 
 EXPOSE 8080
 
