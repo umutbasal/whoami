@@ -3,7 +3,9 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use json_to_table::json_to_table;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::process::Command;
+use std::str::FromStr;
 use std::{convert::Infallible, net::SocketAddr};
 use sysinfo::{System, SystemExt};
 
@@ -61,11 +63,19 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
 
     let remote_ip = addr.ip().to_string();
 
+    let (ipv4, ipv6) = public_ips().await;
+
+    let public_map = serde_json::json!({
+        "ipv4": ipv4.to_string(),
+        "ipv6": ipv6.to_string(),
+    });
+
     let json_data = serde_json::json!({
         "headers": headers_map,
         "environment": environment_map,
         "sysinfo": sys,
         "remote_ip": remote_ip,
+        "public_ips": public_map,
     });
 
     let mut output = String::new();
@@ -87,6 +97,50 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         "<html><head><title>Whoami</title></head><body>{}</body></html>",
         output
     ))))
+}
+
+pub async fn public_ips() -> (Ipv4Addr, Ipv6Addr) {
+    let cmd = Command::new("sh")
+        .arg("-c")
+        .arg("curl -s https://ipv4.icanhazip.com")
+        .output()
+        .expect("failed to execute process");
+
+    let ipv4 = String::from_utf8(cmd.stdout)
+        .unwrap_or("".to_string())
+        .trim()
+        .to_string();
+    let ipv4 = Ipv4Addr::from_str(&ipv4).unwrap();
+
+    //dig +short AAAA ipv6.icanhazip.com
+    let cmd = Command::new("sh")
+        .arg("-c")
+        .arg("dig +short AAAA ipv6.icanhazip.com | head -n 1")
+        .output()
+        .expect("failed to execute process");
+
+    let aaaa = String::from_utf8(cmd.stdout)
+        .unwrap_or("".to_string())
+        .trim()
+        .to_string();
+    let ipv6 = Ipv6Addr::from_str(&aaaa).unwrap_or(Ipv6Addr::UNSPECIFIED);
+
+    let cmd = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "curl -k -6 -s https://[{}] --header 'Host: ipv6.icanhazip.com'",
+            ipv6
+        ))
+        .output()
+        .expect("failed to execute process");
+
+    let ipv6 = String::from_utf8(cmd.stdout)
+        .unwrap_or("".to_string())
+        .trim()
+        .to_string();
+    let ipv6 = Ipv6Addr::from_str(&ipv6).unwrap_or(Ipv6Addr::UNSPECIFIED);
+
+    (ipv4, ipv6)
 }
 
 fn view_as_json(req: Request<Body>) -> bool {
