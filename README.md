@@ -21,6 +21,7 @@ docker run -p 8080:8080 --rm -it --name wh umutbasal/whoami:latest
   - OS Information
   - Boot Time
   - ... (see [sysinfo](https://docs.rs/sysinfo/latest/sysinfo/) crate)
+- Isolation posture via [am-i-isolated](https://github.com/edera-dev/am-i-isolated)
 
 ### Output types
 

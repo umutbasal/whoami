@@ -70,17 +70,31 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
         "ipv6": ipv6.to_string(),
     });
 
+    let mut am_i_isolated = match am_i_isolated() {
+        Ok(isolation_posture) => isolation_posture.data,
+        Err(_) => HashMap::new(),
+    };
+
+    if am_i_isolated.is_empty() {
+        am_i_isolated.insert(
+            "No isolation posture data".to_string(),
+            vec!["".to_string()],
+        );
+    }
+
     let json_data = serde_json::json!({
-        "headers": headers_map,
-        "environment": environment_map,
-        "sysinfo": sys,
-        "remote_ip": remote_ip,
-        "public_ips": public_map,
+        "1_headers": headers_map,
+        "2_environment": environment_map,
+        "3_remote_ip": remote_ip,
+        "4_public_ips": public_map,
+        "5_am_i_isolated": am_i_isolated,
+        "6_sysinfo": sys,
     });
 
     let mut output = String::new();
 
     for (key, value) in json_data.as_object().unwrap() {
+        let key = clean_prefixes(key);
         output = output
             + &format!(
                 "\n<h1>{}</h1>\n<pre>\n{}\n</pre>",
@@ -90,13 +104,77 @@ async fn handle(req: Request<Body>, addr: SocketAddr) -> Result<Response<Body>, 
     }
 
     if view_as_json {
-        return Ok(Response::new(Body::from(json_data.to_string())));
+        let mut cleaned_json = serde_json::Map::new();
+        for (key, value) in json_data.as_object().unwrap() {
+            let cleaned_key = clean_prefixes(key).to_string();
+            cleaned_json.insert(cleaned_key, value.clone());
+        }
+        let mut output = serde_json::Value::Object(cleaned_json).to_string();
+        output = replace_emojis(&output);
+        return Ok(Response::new(Body::from(output.to_string())));
     }
 
-    Ok(Response::new(Body::from(format!(
+    let mut response = Response::new(Body::from(format!(
         "<html><head><title>Whoami</title></head><body>{}</body></html>",
         output
-    ))))
+    )));
+    response.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    Ok(response)
+}
+
+fn clean_prefixes(key: &String) -> &str {
+    let key = key.trim_start_matches(|c: char| c.is_ascii_digit() || c == '_');
+    key
+}
+
+pub fn mock_isolated() -> String {
+    let output = "High Priority\n a\n b\n c\nLow Priority\n d\n e\n f\n";
+    output.to_string()
+}
+
+fn parse_isolation_output(output: &str) -> HashMap<String, Vec<String>> {
+    let output = output
+        .lines()
+        .filter(|line| line.starts_with(' ') || line.contains("Priority"))
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    let mut data = HashMap::new();
+    let mut key = String::new();
+    for line in output.lines() {
+        if line.starts_with(' ') {
+            data.entry(key.clone())
+                .or_insert_with(Vec::new)
+                .push(line.trim().to_string());
+        } else {
+            key = line.trim().to_string();
+        }
+    }
+
+    data
+}
+
+pub struct IsolationPosture {
+    data: HashMap<String, Vec<String>>,
+}
+
+pub fn am_i_isolated() -> Result<IsolationPosture, String> {
+    let cmd = Command::new("/app/am-i-isolated").output();
+
+    let output = match cmd {
+        Ok(output) => match String::from_utf8(output.stdout) {
+            Ok(output) => output,
+            Err(_) => return Err("Failed to parse command output".to_string()),
+        },
+        Err(_) => return Err("Failed to execute process".to_string()),
+    };
+
+    let data = parse_isolation_output(&output);
+
+    Ok(IsolationPosture { data })
 }
 
 pub async fn public_ips() -> (Ipv4Addr, Ipv6Addr) {
@@ -157,8 +235,26 @@ fn view_as_json(req: Request<Body>) -> bool {
                 || req.uri().path().contains('h')))
 }
 
+fn replace_emojis(text: &str) -> String {
+    let re = regex::Regex::new(r"🔥|😬|🤔|🔴|🟡|🟢").unwrap();
+
+    re.replace_all(text, |caps: &regex::Captures| {
+        match caps.get(0).unwrap().as_str() {
+            "🔥" => "[HIGH]",
+            "😬" => "[MEDIUM]",
+            "🤔" => "[Low]",
+            "🔴" => "[FAILED]",
+            "🟡" => "[LOW]",
+            "🟢" => "[PASSED]",
+            _ => "",
+        }
+    })
+    .to_string()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use sysinfo::SystemExt;
 
     #[test]
@@ -300,5 +396,20 @@ mod tests {
 
         assert!(body.contains("remote_ip"));
         assert!(body.contains("0.0.0.0"));
+    }
+
+    #[test]
+    fn test_parse_isolation_output() {
+        let output = &mock_isolated();
+        let parsed = parse_isolation_output(output);
+
+        assert_eq!(
+            parsed.get("High Priority").unwrap(),
+            &vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+        assert_eq!(
+            parsed.get("Low Priority").unwrap(),
+            &vec!["d".to_string(), "e".to_string(), "f".to_string()]
+        );
     }
 }
